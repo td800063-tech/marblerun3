@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="ja" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ビー玉タイム計測＆録画カメラ</title>
+  <!-- Tailwind CSS の読み込み -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts (Inter & JetBrains Mono) の読み込み -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* モバイルブラウザでのオーバースクロールや選択を防止し、100dvhで画面にぴったり収める */
+    html, body {
+      height: 100dvh;
+      overflow: hidden;
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    /* 録画ボタンのパルスアニメーション */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.7; }
+      70% { transform: scale(1.12); opacity: 0; }
+      100% { transform: scale(0.95); opacity: 0; }
+    }
+    .animate-pulse-ring {
+      animation: pulse-ring 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 flex flex-col justify-between h-[100dvh] w-full relative">
+
+  <!-- カメラ映像取得用の非表示video要素 -->
+  <video id="cameraVideo" playsinline muted autoplay class="hidden"></video>
+
+  <!-- トップヘッダー（ステータス・音ON/OFF・カメラ切替） -->
+  <header class="z-20 flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur-md border-b border-slate-800/80 shrink-0">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+        <!-- ビー玉アイコン (SVG) -->
+        <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M8.5 8.5c1.5-1.5 4-1.5 5.5 0s1.5 4 0 5.5" stroke-linecap="round" />
+          <circle cx="9" cy="9" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-sm sm:text-base font-bold tracking-tight leading-none">ビー玉タイマーカメラ</h1>
+        <p id="statusSubtitle" class="text-[11px] text-slate-400 mt-0.5">カメラ準備中...</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <!-- サウンド ON/OFF ボタン -->
+      <button id="soundToggleBtn" type="button" aria-label="音声切り替え"
+        class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 transition text-slate-200 border border-slate-700/60">
+        <!-- 音ありアイコン -->
+        <svg id="soundOnIcon" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+        </svg>
+        <!-- ミュートアイコン -->
+        <svg id="soundOffIcon" class="w-5 h-5 hidden text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+        </svg>
+      </button>
+
+      <!-- カメラ前後切り替えボタン -->
+      <button id="switchCameraBtn" type="button" aria-label="カメラ切り替え"
+        class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 transition text-slate-200 border border-slate-700/60 disabled:opacity-40 disabled:pointer-events-none">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- メインキャンバス表示エリア（録画対象） -->
+  <main id="canvasContainer" class="relative flex-1 w-full overflow-hidden bg-black flex items-center justify-center">
+    <canvas id="recordingCanvas" class="block w-full h-full object-contain"></canvas>
+
+    <!-- カメラ起動中オーバーレイ -->
+    <div id="loadingOverlay" class="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center z-10">
+      <div class="w-12 h-12 border-4 border-sky-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+      <p class="text-base font-semibold text-slate-200">カメラを起動しています...</p>
+      <p class="text-xs text-slate-400 mt-1">カメラのアクセス許可を求められた場合は「許可」を選択してください</p>
+    </div>
+
+    <!-- カメラエラー・権限拒否時の案内オーバーレイ -->
+    <div id="errorOverlay" class="hidden absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center z-20">
+      <div class="w-14 h-14 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center mb-4 border border-rose-500/30">
+        <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+      </div>
+      <h2 class="text-lg font-bold text-white mb-2">カメラにアクセスできません</h2>
+      <p id="errorMessage" class="text-sm text-slate-300 max-w-md leading-relaxed mb-6">
+        カメラの権限が拒否されているか、HTTPS以外の環境で開かれています。ブラウザの設定からカメラを許可して再試行してください。
+      </p>
+      <div class="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
+        <button id="retryCameraBtn" type="button"
+          class="w-full py-3 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 active:scale-95 font-bold text-white transition shadow-lg shadow-sky-600/25">
+          再試行する
+        </button>
+        <button id="demoModeBtn" type="button"
+          class="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 font-semibold text-slate-200 border border-slate-700 transition">
+          デモ映像で試す
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ボトムコントロールバー（操作ボタン） -->
+  <footer class="z-20 px-4 py-3 sm:py-4 bg-slate-900/90 backdrop-blur-md border-t border-slate-800/80 shrink-0">
+    <div class="max-w-lg mx-auto flex items-center justify-center gap-3">
+      
+      <!-- 1. 待機中：録画スタートボタン -->
+      <button id="startRecordBtn" type="button" disabled
+        class="relative w-full py-3.5 sm:py-4 px-6 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none text-white font-extrabold text-base sm:text-lg shadow-xl shadow-rose-600/30 transition flex items-center justify-center gap-3">
+        <span class="relative flex h-4 w-4">
+          <span class="animate-pulse-ring absolute inline-flex h-full w-full rounded-full bg-white"></span>
+          <span class="relative inline-flex rounded-full h-4 w-4 bg-white"></span>
+        </span>
+        <span>録画スタート（3秒後計測）</span>
+      </button>
+
+      <!-- 2. カウントダウン中：キャンセルボタン -->
+      <button id="cancelCountdownBtn" type="button"
+        class="hidden w-full py-3.5 sm:py-4 px-6 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 font-bold text-base sm:text-lg border border-slate-700 transition flex items-center justify-center gap-2">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+        <span>カウントダウン中止</span>
+      </button>
+
+      <!-- 3. 計測中：ストップ（計測終了）ボタン -->
+      <button id="stopTimerBtn" type="button"
+        class="hidden w-full py-3.5 sm:py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 active:scale-[0.98] text-slate-950 font-extrabold text-base sm:text-lg shadow-xl shadow-orange-500/30 transition flex items-center justify-center gap-3">
+        <span class="w-4 h-4 rounded-sm bg-slate-950 inline-block"></span>
+        <span>ストップ（計測終了）</span>
+      </button>
+
+      <!-- 4. 終了処理中（1.5秒余韻録画中）表示 -->
+      <div id="finishingBanner"
+        class="hidden w-full py-3.5 sm:py-4 px-6 rounded-2xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 font-bold text-base text-center flex items-center justify-center gap-2.5">
+        <span class="w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></span>
+        <span>確定タイムを録画中...</span>
+      </div>
+
+    </div>
+  </footer>
+
+  <!-- 計測結果＆動画プレビュー・保存モーダル -->
+  <div id="resultModal" class="hidden fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex flex-col justify-between p-4 sm:p-6 overflow-y-auto">
+    <div class="max-w-lg w-full mx-auto flex flex-col h-full justify-between gap-4">
+      
+      <!-- モーダルヘッダー＆確定タイム -->
+      <div class="text-center pt-1 shrink-0">
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 mb-1.5">
+          MEASUREMENT COMPLETE
+        </span>
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl py-3 px-4 shadow-inner">
+          <p class="text-xs text-slate-400 font-medium">ビー玉走行タイム</p>
+          <p id="finalTimeDisplay" class="font-mono text-4xl sm:text-5xl font-extrabold text-white tracking-tight mt-0.5">
+            00.00<span class="text-xl sm:text-2xl text-slate-400 ml-1">秒</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- 録画した動画のプレビュープレイヤー -->
+      <div class="relative flex-1 min-h-[200px] bg-black rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center shadow-2xl">
+        <video id="recordedVideoPlayer" controls playsinline loop class="w-full h-full object-contain"></video>
+      </div>
+
+      <!-- アクションボタン群（保存・共有・再計測） -->
+      <div class="flex flex-col gap-2.5 shrink-0 pb-1">
+        <!-- 端末へダウンロード保存 -->
+        <button id="downloadVideoBtn" type="button"
+          class="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 active:scale-[0.98] text-white font-extrabold text-base shadow-lg shadow-sky-600/25 transition flex items-center justify-center gap-2.5">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          <span id="downloadBtnLabel">動画を保存</span>
+        </button>
+
+        <!-- モバイル共有（iPhoneの写真アプリ保存などに対応） -->
+        <button id="shareVideoBtn" type="button"
+          class="hidden w-full py-3 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-bold text-base shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-2">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+          </svg>
+          <span>共有 / 写真に保存</span>
+        </button>
+
+        <!-- リセットして再計測 -->
+        <button id="resetAppBtn" type="button"
+          class="w-full py-3 px-5 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 font-bold text-sm sm:text-base border border-slate-700 transition flex items-center justify-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span>もう一度計測する</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- トースト通知用メッセージボックス（alertの代替） -->
+  <div id="toastMessage" class="pointer-events-none fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl bg-slate-800/95 text-white text-sm font-semibold shadow-xl border border-slate-700 opacity-0 transition-opacity duration-300 text-center max-w-[90vw]">
+  </div>
+
+  <script>
+    /**
+     * ビー玉走行時間計測＆録画カメラアプリ
+     * 状態管理・Web Audio API・Canvas焼き込み描画・MediaRecorder制御
+     */
+    (() => {
+      // --- DOM要素の参照 ---
+      const videoEl = document.getElementById('cameraVideo');
+      const canvasContainer = document.getElementById('canvasContainer');
+      const canvas = document.getElementById('recordingCanvas');
+      const ctx = canvas.getContext('2d', { alpha: false });
+
+      const statusSubtitle = document.getElementById('statusSubtitle');
+      const loadingOverlay = document.getElementById('loadingOverlay');
+      const errorOverlay = document.getElementById('errorOverlay');
+      const errorMessage = document.getElementById('errorMessage');
+
+      const soundToggleBtn = document.getElementById('soundToggleBtn');
+      const soundOnIcon = document.getElementById('soundOnIcon');
+      const soundOffIcon = document.getElementById('soundOffIcon');
+      const switchCameraBtn = document.getElementById('switchCameraBtn');
+      const retryCameraBtn = document.getElementById('retryCameraBtn');
+      const demoModeBtn = document.getElementById('demoModeBtn');
+
+      const startRecordBtn = document.getElementById('startRecordBtn');
+      const cancelCountdownBtn = document.getElementById('cancelCountdownBtn');
+      const stopTimerBtn = document.getElementById('stopTimerBtn');
+      const finishingBanner = document.getElementById('finishingBanner');
+
+      const resultModal = document.getElementById('resultModal');
+      const finalTimeDisplay = document.getElementById('finalTimeDisplay');
+      const recordedVideoPlayer = document.getElementById('recordedVideoPlayer');
+      const downloadVideoBtn = document.getElementById('downloadVideoBtn');
+      const downloadBtnLabel = document.getElementById('downloadBtnLabel');
+      const shareVideoBtn = document.getElementById('shareVideoBtn');
+      const resetAppBtn = document.getElementById('resetAppBtn');
+      const toastMessage = document.getElementById('toastMessage');
+
+      // --- アプリケーション状態 ---
+      // 'INIT' | 'IDLE' | 'COUNTDOWN' | 'RUNNING' | 'FINISHING' | 'RESULT' | 'ERROR'
+      let appState = 'INIT';
+      let isSoundEnabled = true;
+      let facingMode = 'environment'; // 'environment' (背面) or 'user' (前面)
+      let mediaStream = null;
+      let isDemoMode = false;
+
+      // タイミング管理用変数 (performance.now() ベース)
+      let recordStartTime = 0;
+      let countdownStartTime = 0;
+      let lastCountdownDigit = null;
+      let timerStartTime = 0;
+      let finalElapsedMs = 0;
+      let finishingTimeoutId = null;
+
+      // 録画 (MediaRecorder) 関連
+      let mediaRecorder = null;
+      let recordedChunks = [];
+      let recordedBlob = null;
+      let recordedUrl = null;
+      let selectedMimeType = '';
+      let fileExtension = 'mp4';
+      let isRecordingCancelled = false;
+
+      // Web Audio API
+      let audioCtx = null;
+
+      // アニメーションループID
+      let animationFrameId = null;
+
+      // --- ユーティリティ関数 ---
+
+      /**
+       * トースト通知を表示する (alert()の代替)
+       */
+      let toastTimer = null;
+      function showToast(msg, duration = 2600) {
+        toastMessage.textContent = msg;
+        toastMessage.classList.remove('opacity-0');
+        toastMessage.classList.add('opacity-100');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          toastMessage.classList.remove('opacity-100');
+          toastMessage.classList.add('opacity-0');
+        }, duration);
+      }
+
+      /**
+       * ミリ秒を "00.00" 形式（10ミリ秒単位）の文字列にフォーマットする
+       */
+      function formatTime(ms) {
+        const clampedMs = Math.max(0, ms);
+        const totalCentiseconds = Math.floor(clampedMs / 10);
+        const seconds = Math.floor(totalCentiseconds / 100);
+        const centiseconds = totalCentiseconds % 100;
+        const secStr = String(seconds).padStart(2, '0');
+        const csStr = String(centiseconds).padStart(2, '0');
+        return `${secStr}.${csStr}`;
+      }
+
+      /**
+       * Web Audio API による電子音生成
+       */
+      function initAudio() {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            audioCtx = new AudioContextClass();
+          }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume().catch(() => {});
+        }
+      }
+
+      function playBeep(frequency = 880, durationSec = 0.12, type = 'sine', volume = 0.25) {
+        if (!isSoundEnabled) return;
+        try {
+          initAudio();
+          if (!audioCtx) return;
+
+          const now = audioCtx.currentTime;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+
+          osc.type = type;
+          osc.frequency.setValueAtTime(frequency, now);
+
+          // クリックノイズを防ぐエンベロープ
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.exponentialRampToValueAtTime(volume, now + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + durationSec);
+
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+
+          osc.start(now);
+          osc.stop(now + durationSec + 0.02);
+        } catch (e) {
+          console.warn('Audio playback skipped:', e);
+        }
+      }
+
+      function playCountSound() {
+        playBeep(880, 0.13, 'triangle', 0.3); // ピッ (A5)
+      }
+
+      function playStartSound() {
+        playBeep(1760, 0.42, 'triangle', 0.35); // ピーッ (A6)
+      }
+
+      function playStopSound() {
+        playBeep(1046.5, 0.1, 'sine', 0.25); // ド (C6)
+        setTimeout(() => playBeep(1318.5, 0.18, 'sine', 0.25), 90); // ミ (E6)
+      }
+
+      /**
+       * 対応している録画MIMEタイプを判定する
+       */
+      function detectSupportedMimeType() {
+        if (typeof MediaRecorder === 'undefined') {
+          return { mimeType: '', ext: 'mp4' };
+        }
+        const candidates = [
+          { mimeType: 'video/mp4;codecs=avc1', ext: 'mp4' },
+          { mimeType: 'video/mp4', ext: 'mp4' },
+          { mimeType: 'video/webm;codecs=vp9', ext: 'webm' },
+          { mimeType: 'video/webm;codecs=vp8', ext: 'webm' },
+          { mimeType: 'video/webm', ext: 'webm' }
+        ];
+        for (const item of candidates) {
+          try {
+            if (MediaRecorder.isTypeSupported(item.mimeType)) {
+              return item;
+            }
+          } catch (e) {
+            // 無視して次へ
+          }
+        }
+        return { mimeType: '', ext: 'webm' };
+      }
+
+      // --- カメラ制御・キャンバスサイズ調整 ---
+
+      /**
+       * コンテナに合わせてキャンバス解像度を更新する
+       * ※録画中はストリーム破損を防ぐため解像度を変更しない
+       */
+      function updateCanvasSize() {
+        if (appState === 'COUNTDOWN' || appState === 'RUNNING' || appState === 'FINISHING') {
+          return;
+        }
+        const rect = canvasContainer.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+
+        // モバイルでの録画負荷を抑えつつ高画質を維持するため、最大辺を1280px以内に制限
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        let targetW = Math.round(rect.width * dpr);
+        let targetH = Math.round(rect.height * dpr);
+        const maxDim = 1280;
+
+        if (targetW > maxDim || targetH > maxDim) {
+          const scale = maxDim / Math.max(targetW, targetH);
+          targetW = Math.round(targetW * scale);
+          targetH = Math.round(targetH * scale);
+        }
+
+        // 偶数ピクセルに丸める（H.264/MP4エンコーダの互換性向上のため）
+        targetW = targetW % 2 === 0 ? targetW : targetW - 1;
+        targetH = targetH % 2 === 0 ? targetH : targetH - 1;
+
+        if (canvas.width !== targetW || canvas.height !== targetH) {
+          canvas.width = Math.max(320, targetW);
+          canvas.height = Math.max(320, targetH);
+        }
+      }
+
+      /**
+       * カメラの起動処理
+       */
+      async function startCamera() {
+        appState = 'INIT';
+        isDemoMode = false;
+        loadingOverlay.classList.remove('hidden');
+        errorOverlay.classList.add('hidden');
+        startRecordBtn.disabled = true;
+        statusSubtitle.textContent = 'カメラを起動中...';
+
+        // 既存ストリームがあれば停止
+        if (mediaStream) {
+          mediaStream.getTracks().forEach(track => track.stop());
+          mediaStream = null;
+        }
+
+        // HTTPSまたはlocalhostチェック
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          handleCameraError('お使いのブラウザはカメラ機能に対応していないか、安全な接続（HTTPS）で開かれていません。');
+          return;
+        }
+
+        try {
+          const constraints = {
+            audio: false,
+            video: {
+              facingMode: { ideal: facingMode },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            }
+          };
+
+          mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+          videoEl.srcObject = mediaStream;
+
+          await new Promise((resolve) => {
+            videoEl.onloadedmetadata = () => {
+              videoEl.play().then(resolve).catch(resolve);
+            };
+          });
+
+          loadingOverlay.classList.add('hidden');
+          appState = 'IDLE';
+          startRecordBtn.disabled = false;
+          switchCameraBtn.disabled = false;
+          statusSubtitle.textContent = facingMode === 'environment' ? '背面カメラ待機中' : '前面カメラ待機中';
+          updateCanvasSize();
+        } catch (err) {
+          console.error('Camera initialization error:', err);
+          let msg = 'カメラへのアクセスが許可されませんでした。ブラウザの設定からカメラ権限を許可してください。';
+          if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            msg = '使用可能なカメラが見つかりませんでした。';
+          } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+            msg = 'カメラが他のアプリで使用中です。他のアプリを閉じてから再試行してください。';
+          }
+          handleCameraError(msg);
+        }
+      }
+
+      function handleCameraError(msg) {
+        appState = 'ERROR';
+        loadingOverlay.classList.add('hidden');
+        errorOverlay.classList.remove('hidden');
+        errorMessage.textContent = msg;
+        statusSubtitle.textContent = 'カメラエラー';
+        startRecordBtn.disabled = true;
+      }
+
+      /**
+       * カメラがない環境でも動作を試せるデモモード
+       */
+      function enableDemoMode() {
+        isDemoMode = true;
+        errorOverlay.classList.add('hidden');
+        loadingOverlay.classList.add('hidden');
+        appState = 'IDLE';
+        startRecordBtn.disabled = false;
+        switchCameraBtn.disabled = true;
+        statusSubtitle.textContent = 'デモ映像モード（仮想盤面）';
+        updateCanvasSize();
+        showToast('デモ映像モードを起動しました');
+      }
+
+      // --- キャンバス描画ロジック（映像＋UI焼き込み） ---
+
+      /**
+       * カメラ映像をアスペクト比維持（coverトリミング）でCanvasに描画
+       */
+      function drawCameraBackground(now) {
+        const cw = canvas.width;
+        const ch = canvas.height;
+
+        if (isDemoMode) {
+          // デモモード：盤面と転がるビー玉のアニメーションを描画
+          const grad = ctx.createLinearGradient(0, 0, cw, ch);
+          grad.addColorStop(0, '#1e293b');
+          grad.addColorStop(1, '#0f172a');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, cw, ch);
+
+          // 盤面のグリッド線
+          ctx.strokeStyle = 'rgba(148, 163, 184, 0.15)';
+          ctx.lineWidth = 2;
+          const step = Math.max(40, Math.round(cw / 10));
+          for (let x = 0; x < cw; x += step) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, ch);
+            ctx.stroke();
+          }
+          for (let y = 0; y < ch; y += step) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(cw, y);
+            ctx.stroke();
+          }
+
+          // 転がる仮想ビー玉
+          const t = now * 0.002;
+          const bx = cw * 0.5 + Math.sin(t) * (cw * 0.32);
+          const by = ch * 0.55 + Math.cos(t * 1.4) * (ch * 0.22);
+          const radius = Math.min(cw, ch) * 0.045;
+
+          // 影
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+          ctx.beginPath();
+          ctx.ellipse(bx + radius * 0.2, by + radius * 0.3, radius, radius * 0.85, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // ビー玉本体
+          const ballGrad = ctx.createRadialGradient(
+            bx - radius * 0.3, by - radius * 0.3, radius * 0.1,
+            bx, by, radius
+          );
+          ballGrad.addColorStop(0, '#e0f2fe');
+          ballGrad.addColorStop(0.35, '#0284c7');
+          ballGrad.addColorStop(1, '#1e3a8a');
+          ctx.fillStyle = ballGrad;
+          ctx.beginPath();
+          ctx.arc(bx, by, radius, 0, Math.PI * 2);
+          ctx.fill();
+
+          // デモラベル
+          ctx.fillStyle = 'rgba(255,255,255,0.4)';
+          ctx.font = `600 ${Math.round(Math.min(cw, ch) * 0.025)}px Inter, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.fillText('DEMO MODE - 仮想盤面プレビュー', cw / 2, ch - 24);
+          return;
+        }
+
+        const vw = videoEl.videoWidth;
+        const vh = videoEl.videoHeight;
+
+        if (!vw || !vh) {
+          ctx.fillStyle = '#090d16';
+          ctx.fillRect(0, 0, cw, ch);
+          return;
+        }
+
+        // object-fit: cover 相当の中央クロップ計算
+        const canvasRatio = cw / ch;
+        const videoRatio = vw / vh;
+        let sx = 0, sy = 0, sWidth = vw, sHeight = vh;
+
+        if (videoRatio > canvasRatio) {
+          // 映像の方が横長 -> 左右をトリミング
+          sWidth = vh * canvasRatio;
+          sx = (vw - sWidth) / 2;
+        } else {
+          // 映像の方が縦長 -> 上下をトリミング
+          sHeight = vw / canvasRatio;
+          sy = (vh - sHeight) / 2;
+        }
+
+        ctx.drawImage(videoEl, sx, sy, sWidth, sHeight, 0, 0, cw, ch);
+      }
+
+      /**
+       * 角丸矩形のパスを描くヘルパー
+       */
+      function roundRectPath(ctx, x, y, w, h, r) {
+        const radius = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.arcTo(x + w, y, x + w, y + h, radius);
+        ctx.arcTo(x + w, y + h, x, y + h, radius);
+        ctx.arcTo(x, y + h, x, y, radius);
+        ctx.arcTo(x, y, x + w, y, radius);
+        ctx.closePath();
+      }
+
+      /**
+       * キャンバス上にREC表示・タイマー・カウントダウンを焼き込み描画する
+       */
+      function drawOverlays(now) {
+        const cw = canvas.width;
+        const ch = canvas.height;
+        const minSide = Math.min(cw, ch);
+        const isRecordingActive = (appState === 'COUNTDOWN' || appState === 'RUNNING' || appState === 'FINISHING');
+
+        // 1. 左上の「REC」インジケーター（録画中のみ）
+        if (isRecordingActive) {
+          const pad = Math.round(minSide * 0.032);
+          const badgeH = Math.round(minSide * 0.072);
+          const badgeW = Math.round(badgeH * 2.35);
+          const x = pad;
+          const y = pad;
+
+          // 背景ピル
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+          roundRectPath(ctx, x, y, badgeW, badgeH, badgeH / 2);
+          ctx.fill();
+
+          ctx.strokeStyle = 'rgba(244, 63, 94, 0.5)';
+          ctx.lineWidth = Math.max(1.5, minSide * 0.003);
+          ctx.stroke();
+
+          // 点滅する赤丸（0.5秒周期）
+          const blink = Math.floor((now - recordStartTime) / 500) % 2 === 0;
+          const dotR = badgeH * 0.22;
+          const dotX = x + badgeH * 0.52;
+          const dotY = y + badgeH / 2;
+
+          ctx.fillStyle = blink ? '#ef4444' : 'rgba(239, 68, 68, 0.3)';
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
+          ctx.fill();
+
+          // REC テキスト
+          ctx.fillStyle = '#ffffff';
+          ctx.font = `800 ${Math.round(badgeH * 0.46)}px Inter, sans-serif`;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('REC', dotX + dotR * 1.6, dotY + 1);
+        }
+
+        // 2. 上部の経過タイマー表示（常に画角位置が分かるよう表示し、計測中・確定時に強調）
+        let displayMs = 0;
+        if (appState === 'RUNNING') {
+          displayMs = now - timerStartTime;
+        } else if (appState === 'FINISHING' || appState === 'RESULT') {
+          displayMs = finalElapsedMs;
+        }
+
+        const timeText = formatTime(displayMs);
+        const timerFontSize = Math.round(minSide * 0.095);
+        ctx.font = `800 ${timerFontSize}px "JetBrains Mono", monospace`;
+        const textMetrics = ctx.measureText(timeText);
+        const unitFontSize = Math.round(timerFontSize * 0.42);
+
+        const boxPadX = Math.round(timerFontSize * 0.55);
+        const boxPadY = Math.round(timerFontSize * 0.28);
+        const boxW = Math.round(textMetrics.width + unitFontSize * 1.4 + boxPadX * 2);
+        const boxH = Math.round(timerFontSize + boxPadY * 2 + (appState === 'FINISHING' ? unitFontSize * 1.1 : 0));
+
+        // 画面上部に配置（左上のRECバッジと重ならないよう横幅が狭い場合は少し下げる）
+        const topMargin = cw < 520 && isRecordingActive
+          ? Math.round(minSide * 0.125)
+          : Math.round(minSide * 0.032);
+        const boxX = Math.round((cw - boxW) / 2);
+        const boxY = topMargin;
+
+        // タイマー背景ボックス
+        if (appState === 'FINISHING') {
+          ctx.fillStyle = 'rgba(6, 78, 59, 0.88)'; // 確定時は深いエメラルド背景
+        } else if (appState === 'RUNNING') {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+        } else {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.48)';
+        }
+
+        roundRectPath(ctx, boxX, boxY, boxW, boxH, Math.round(minSide * 0.03));
+        ctx.fill();
+
+        // 枠線
+        if (appState === 'FINISHING') {
+          ctx.strokeStyle = '#34d399';
+          ctx.lineWidth = Math.max(3, minSide * 0.007);
+          ctx.stroke();
+        } else if (appState === 'RUNNING') {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+          ctx.lineWidth = Math.max(2, minSide * 0.004);
+          ctx.stroke();
+        } else {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+
+        // 確定時の「FINISH!」ラベル
+        let timeCenterY = boxY + boxH / 2;
+        if (appState === 'FINISHING') {
+          ctx.fillStyle = '#6ee7b7';
+          ctx.font = `800 ${Math.round(unitFontSize * 0.9)}px Inter, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillText('FINISH!', cw / 2, boxY + boxPadY * 0.75);
+          timeCenterY = boxY + boxH * 0.62;
+        }
+
+        // タイマー数値の描画
+        ctx.fillStyle = appState === 'IDLE' || appState === 'COUNTDOWN' ? 'rgba(255,255,255,0.75)' : '#ffffff';
+        ctx.font = `800 ${timerFontSize}px "JetBrains Mono", monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const numberCenterX = cw / 2 - unitFontSize * 0.55;
+        ctx.fillText(timeText, numberCenterX, timeCenterY + 2);
+
+        // 「秒」ラベル
+        ctx.fillStyle = appState === 'FINISHING' ? '#a7f3d0' : 'rgba(203, 213, 225, 0.85)';
+        ctx.font = `700 ${unitFontSize}px Inter, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.fillText('秒', numberCenterX + textMetrics.width / 2 + 6, timeCenterY + timerFontSize * 0.14);
+
+        // 3. 中央の「3 -> 2 -> 1」カウントダウン描画
+        if (appState === 'COUNTDOWN') {
+          const elapsed = now - countdownStartTime;
+          const remainingMs = 3000 - elapsed;
+
+          if (remainingMs > 0) {
+            const currentDigit = Math.ceil(remainingMs / 1000); // 3, 2, 1
+            const fraction = (remainingMs % 1000) / 1000; // 1.0 -> 0.0
+
+            // 数字が変わった瞬間にカウント音を鳴らす
+            if (currentDigit !== lastCountdownDigit) {
+              lastCountdownDigit = currentDigit;
+              playCountSound();
+            }
+
+            const centerX = cw / 2;
+            const centerY = ch / 2;
+            const circleR = minSide * 0.21;
+
+            // 半透明ダークサークル
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, circleR, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 外周のカウントダウンプログレスリング
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.lineWidth = Math.max(6, minSide * 0.016);
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, circleR - ctx.lineWidth / 2, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            const startAngle = -Math.PI / 2;
+            const endAngle = startAngle + (Math.PI * 2 * fraction);
+            ctx.arc(centerX, centerY, circleR - ctx.lineWidth / 2, startAngle, endAngle);
+            ctx.stroke();
+
+            // カウントダウン数字（出現時に少しズームする演出）
+            const popScale = 1 + Math.pow(fraction, 3) * 0.22;
+            const digitSize = Math.round(minSide * 0.24 * popScale);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `800 ${digitSize}px Inter, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(String(currentDigit), centerX, centerY + 4);
+          } else {
+            // 3秒経過：タイマー計測開始へ遷移！
+            transitionToRunning(now);
+          }
+        }
+
+        // 4. 計測開始直後（0.65秒間）の「START!」ポップ表示
+        if (appState === 'RUNNING') {
+          const sinceStart = now - timerStartTime;
+          if (sinceStart < 650) {
+            const progress = sinceStart / 650;
+            const alpha = Math.max(0, 1 - Math.pow(progress, 2));
+            const scale = 0.9 + progress * 0.25;
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.translate(cw / 2, ch / 2);
+            ctx.scale(scale, scale);
+
+            const fontSize = Math.round(minSide * 0.15);
+            ctx.font = `900 ${fontSize}px Inter, sans-serif`;
+            const label = 'START!';
+            const w = ctx.measureText(label).width + fontSize * 0.8;
+            const h = fontSize * 1.45;
+
+            ctx.fillStyle = 'rgba(14, 165, 233, 0.9)';
+            roundRectPath(ctx, -w / 2, -h / 2, w, h, h / 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, 0, 2);
+            ctx.restore();
+          }
+        }
+      }
+
+      /**
+       * メイン描画ループ (requestAnimationFrame)
+       */
+      function renderLoop(now) {
+        drawCameraBackground(now);
+        drawOverlays(now);
+        animationFrameId = requestAnimationFrame(renderLoop);
+      }
+
+      // --- 録画＆計測ステート遷移 ---
+
+      /**
+       * 1. 「録画スタート」押下時：録画開始＆3カウントダウン開始
+       */
+      function startRecordingAndCountdown() {
+        if (appState !== 'IDLE') return;
+
+        // ユーザー操作起点でAudioContextを有効化
+        initAudio();
+
+        // 前回の録画データがあれば解放
+        if (recordedUrl) {
+          URL.revokeObjectURL(recordedUrl);
+          recordedUrl = null;
+        }
+        recordedBlob = null;
+        recordedChunks = [];
+        isRecordingCancelled = false;
+
+        // キャンバスストリーム取得 (30fps)
+        let stream;
+        try {
+          stream = canvas.captureStream(30);
+        } catch (err) {
+          console.error('captureStream error:', err);
+          showToast('お使いのブラウザはキャンバス録画に対応していません');
+          return;
+        }
+
+        const formatInfo = detectSupportedMimeType();
+        selectedMimeType = formatInfo.mimeType;
+        fileExtension = formatInfo.ext;
+
+        try {
+          const options = selectedMimeType ? { mimeType: selectedMimeType } : {};
+          mediaRecorder = new MediaRecorder(stream, options);
+        } catch (err) {
+          console.warn('MediaRecorder fallback:', err);
+          try {
+            mediaRecorder = new MediaRecorder(stream);
+            fileExtension = 'webm';
+          } catch (e2) {
+            showToast('録画の初期化に失敗しました');
+            return;
+          }
+        }
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            recordedChunks.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = () => {
+          // ストリームのトラックを解放
+          stream.getTracks().forEach(t => t.stop());
+
+          if (isRecordingCancelled) {
+            return;
+          }
+
+          const finalMime = selectedMimeType || (mediaRecorder && mediaRecorder.mimeType) || `video/${fileExtension}`;
+          recordedBlob = new Blob(recordedChunks, { type: finalMime });
+          recordedUrl = URL.createObjectURL(recordedBlob);
+          openResultModal();
+        };
+
+        // 録画開始
+        mediaRecorder.start(200);
+
+        const now = performance.now();
+        recordStartTime = now;
+        countdownStartTime = now;
+        lastCountdownDigit = null;
+        appState = 'COUNTDOWN';
+
+        // UI更新
+        statusSubtitle.textContent = '録画中（カウントダウン）';
+        switchCameraBtn.disabled = true;
+        startRecordBtn.classList.add('hidden');
+        cancelCountdownBtn.classList.remove('hidden');
+        stopTimerBtn.classList.add('hidden');
+        finishingBanner.classList.add('hidden');
+      }
+
+      /**
+       * カウントダウン中のキャンセル処理
+       */
+      function cancelCountdown() {
+        if (appState !== 'COUNTDOWN') return;
+        isRecordingCancelled = true;
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+        }
+        resetToIdleUI();
+        showToast('録画を中止しました');
+      }
+
+      /**
+       * 2. カウントダウン終了 -> タイマー計測開始
+       */
+      function transitionToRunning(now) {
+        if (appState !== 'COUNTDOWN') return;
+        timerStartTime = now;
+        appState = 'RUNNING';
+        playStartSound();
+
+        // UI更新
+        statusSubtitle.textContent = '計測中！ビー玉走行中';
+        cancelCountdownBtn.classList.add('hidden');
+        stopTimerBtn.classList.remove('hidden');
+      }
+
+      /**
+       * 3. 「ストップ（計測終了）」押下時 -> タイム確定＆1.5秒後に録画自動終了
+       */
+      function stopTimerAndFinish() {
+        if (appState !== 'RUNNING') return;
+        const stopNow = performance.now();
+        finalElapsedMs = stopNow - timerStartTime;
+        appState = 'FINISHING';
+        playStopSound();
+
+        // UI更新
+        statusSubtitle.textContent = `確定: ${formatTime(finalElapsedMs)}秒（余韻録画中）`;
+        stopTimerBtn.classList.add('hidden');
+        finishingBanner.classList.remove('hidden');
+
+        // 確定タイムを映像にしっかり残すため1.5秒後に録画終了
+        finishingTimeoutId = setTimeout(() => {
+          if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+          }
+        }, 1500);
+      }
+
+      /**
+       * 4. 結果モーダル表示
+       */
+      function openResultModal() {
+        appState = 'RESULT';
+        finishingBanner.classList.add('hidden');
+        statusSubtitle.textContent = '計測完了';
+
+        const formatted = formatTime(finalElapsedMs);
+        finalTimeDisplay.innerHTML = `${formatted}<span class="text-xl sm:text-2xl text-slate-400 ml-1">秒</span>`;
+        downloadBtnLabel.textContent = `動画を保存 (.${fileExtension})`;
+
+        recordedVideoPlayer.src = recordedUrl;
+        resultModal.classList.remove('hidden');
+
+        // navigator.canShare によるファイル共有対応チェック（iPhoneの写真保存等）
+        checkShareAvailability();
+      }
+
+      function checkShareAvailability() {
+        shareVideoBtn.classList.add('hidden');
+        if (!recordedBlob || !navigator.share || !navigator.canShare) return;
+
+        try {
+          const testFile = new File([recordedBlob], `test.${fileExtension}`, { type: recordedBlob.type });
+          if (navigator.canShare({ files: [testFile] })) {
+            shareVideoBtn.classList.remove('hidden');
+          }
+        } catch (e) {
+          // 非対応ブラウザでは共有ボタンを隠したままにする
+        }
+      }
+
+      /**
+       * 日時入りのファイル名を生成
+       */
+      function generateFilename() {
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const dateStr = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+        return `marble-timer-${dateStr}.${fileExtension}`;
+      }
+
+      /**
+       * 動画のダウンロード保存
+       */
+      function downloadRecordedVideo() {
+        if (!recordedUrl) return;
+        const filename = generateFilename();
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = recordedUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+        }, 200);
+        showToast(`「${filename}」を保存しました`);
+      }
+
+      /**
+       * モバイル共有シート経由での保存・共有
+       */
+      async function shareRecordedVideo() {
+        if (!recordedBlob || !navigator.share) return;
+        const filename = generateFilename();
+        try {
+          const file = new File([recordedBlob], filename, { type: recordedBlob.type });
+          await navigator.share({
+            files: [file],
+            title: `ビー玉走行記録 (${formatTime(finalElapsedMs)}秒)`,
+            text: `ビー玉の走行タイム: ${formatTime(finalElapsedMs)}秒`
+          });
+        } catch (err) {
+          if (err.name !== 'AbortError') {
+            console.warn('Share failed:', err);
+            showToast('共有を完了できませんでした。「動画を保存」をお試しください');
+          }
+        }
+      }
+
+      /**
+       * 待機状態へリセット
+       */
+      function resetToIdleUI() {
+        clearTimeout(finishingTimeoutId);
+        recordedVideoPlayer.pause();
+        recordedVideoPlayer.removeAttribute('src');
+        recordedVideoPlayer.load();
+
+        resultModal.classList.add('hidden');
+        cancelCountdownBtn.classList.add('hidden');
+        stopTimerBtn.classList.add('hidden');
+        finishingBanner.classList.add('hidden');
+        startRecordBtn.classList.remove('hidden');
+
+        appState = 'IDLE';
+        switchCameraBtn.disabled = isDemoMode;
+        statusSubtitle.textContent = isDemoMode
+          ? 'デモ映像モード（仮想盤面）'
+          : (facingMode === 'environment' ? '背面カメラ待機中' : '前面カメラ待機中');
+        updateCanvasSize();
+      }
+
+      // --- イベントリスナー登録 ---
+
+      soundToggleBtn.addEventListener('click', () => {
+        isSoundEnabled = !isSoundEnabled;
+        if (isSoundEnabled) {
+          initAudio();
+          soundOnIcon.classList.remove('hidden');
+          soundOffIcon.classList.add('hidden');
+          playBeep(880, 0.08, 'sine', 0.2);
+          showToast('効果音 ON');
+        } else {
+          soundOnIcon.classList.add('hidden');
+          soundOffIcon.classList.remove('hidden');
+          showToast('効果音 OFF');
+        }
+      });
+
+      switchCameraBtn.addEventListener('click', () => {
+        if (appState !== 'IDLE' || isDemoMode) return;
+        facingMode = facingMode === 'environment' ? 'user' : 'environment';
+        startCamera();
+      });
+
+      retryCameraBtn.addEventListener('click', startCamera);
+      demoModeBtn.addEventListener('click', enableDemoMode);
+
+      startRecordBtn.addEventListener('click', startRecordingAndCountdown);
+      cancelCountdownBtn.addEventListener('click', cancelCountdown);
+      stopTimerBtn.addEventListener('click', stopTimerAndFinish);
+
+      downloadVideoBtn.addEventListener('click', downloadRecordedVideo);
+      shareVideoBtn.addEventListener('click', shareRecordedVideo);
+      resetAppBtn.addEventListener('click', resetToIdleUI);
+
+      window.addEventListener('resize', updateCanvasSize);
+      window.addEventListener('orientationchange', () => {
+        setTimeout(updateCanvasSize, 150);
+      });
+
+      // --- 初期化実行 ---
+      window.addEventListener('DOMContentLoaded', () => {
+        updateCanvasSize();
+        animationFrameId = requestAnimationFrame(renderLoop);
+        startCamera();
+      });
+    })();
+  </script>
+</body>
+</html>
